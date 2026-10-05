@@ -1,0 +1,9 @@
+{
+  "uuid": "prisma-dock@prisma.local",
+  "name": "Prisma Dock",
+  "description": "Transparent icon backgrounds for Prisma with Dash to Dock / Ubuntu Dock.",
+  "shell-version": [
+    "50"
+  ],
+  "version": 1
+}
