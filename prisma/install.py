@@ -58,25 +58,6 @@ def owned_companion(path):
         return False
 
 
-def install_companion(extensions_dir):
-    target = extensions_dir / DOCK_EXTENSION
-    if (target.exists() or target.is_symlink()) and not owned_companion(target):
-        raise ValueError(f'{target} já existe e não pertence ao Prisma.')
-    extensions_dir.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix='.prisma-dock-', dir=extensions_dir) as temp:
-        stage, backup = Path(temp) / 'new', Path(temp) / 'previous'
-        shutil.copytree(ROOT / 'integrations' / DOCK_EXTENSION, stage)
-        if target.exists():
-            target.rename(backup)
-        try:
-            stage.rename(target)
-        except OSError:
-            if backup.exists():
-                backup.rename(target)
-            raise
-    return target
-
-
 class UserThemes:
     def run(self, *args):
         return subprocess.run(args, check=True, capture_output=True, text=True,
@@ -100,16 +81,6 @@ class UserThemes:
         self.run('gsettings', 'set', SCHEMA, 'name', json.dumps(name))
 
 
-    def enable_dock(self):
-        try:
-            self.run('gnome-extensions', 'enable', DOCK_EXTENSION)
-            return True
-        except subprocess.SubprocessError:
-            # A newly installed local extension is discovered at next login.
-            self._update_extension_list('enabled-extensions', enable=True)
-            self._update_extension_list('disabled-extensions', enable=False)
-            return False
-
     def disable_dock(self):
         self._update_extension_list('enabled-extensions', enable=False)
 
@@ -129,6 +100,22 @@ class UserThemes:
         if desired != entries:
             self.run('gsettings', 'set', 'org.gnome.shell', key, repr(desired))
 
+    def configure_dock(self, config):
+        """Use the installed dock's native settings, preserving layout choices."""
+        schema = 'org.gnome.shell.extensions.dash-to-dock'
+        if schema not in self.run('gsettings', 'list-schemas').splitlines():
+            return False
+        for key, value in (
+            ('apply-custom-theme', 'false'),
+            ('custom-background-color', 'true'),
+            ('background-color', json.dumps(config.background)),
+            ('background-opacity', '0.85'),
+            ('transparency-mode', "'FIXED'"),
+        ):
+            self.run('gsettings', 'set', schema, key, value)
+        return True
+
+
 
 class Installer:
     def __init__(self, themes_dir=None, settings=None, extensions_dir=None):
@@ -139,11 +126,8 @@ class Installer:
                                Path(os.environ.get('XDG_DATA_HOME', str(Path.home() / '.local/share'))) / 'gnome-shell/extensions')
 
     def install(self, config, activate=False):
-        companion = self.extensions_dir / DOCK_EXTENSION
-        if (companion.exists() or companion.is_symlink()) and not owned_companion(companion):
-            raise ValueError(f'{companion} já existe e não pertence ao Prisma.')
         target = generate(self.themes_dir / config.name, config)
-        install_companion(self.extensions_dir)
+        self.cleanup_legacy_companion()
         print(f'Tema instalado em {target}.')
         if activate:
             try:
@@ -159,10 +143,10 @@ class Installer:
                     raise
                 print(f'Tema {config.name} selecionado.')
                 try:
-                    if not self.settings.enable_dock():
-                        print('Prisma Dock será habilitado no próximo login. Saia e entre na sessão para carregar a nova extensão.')
+                    if self.settings.configure_dock(config):
+                        print('Dock configurada com 85% de opacidade; opções de tamanho preservadas.')
                 except (OSError, ValueError, subprocess.SubprocessError) as error:
-                    print(f'Tema selecionado; habilite Prisma Dock pelo aplicativo Extensões. Detalhe: {error}')
+                    print(f'Tema selecionado; ajuste a dock nas preferências do Dash to Dock. Detalhe: {error}')
             except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
                 print(f'Instalação preservada. Ativação indisponível: {error} Habilite User Themes e selecione {config.name}.')
         return target
@@ -182,11 +166,20 @@ class Installer:
             self.settings.set('')
         shutil.rmtree(target)
         print(f'Tema {name} removido.')
+        self.cleanup_legacy_companion()
+
+    def cleanup_legacy_companion(self):
+        """Remove only the obsolete Prisma-owned helper, never foreign files."""
         companion = self.extensions_dir / DOCK_EXTENSION
-        if owned_companion(companion) and not any(owned(path) for path in self.themes_dir.iterdir()):
+        if not owned_companion(companion):
+            return
+        try:
             try:
-                self.settings.disable_dock()
-            except (OSError, ValueError, subprocess.SubprocessError) as error:
-                print(f'Extensão auxiliar preservada: {error}')
-            else:
-                shutil.rmtree(companion)
+                self.settings.run('gnome-extensions', 'disable', DOCK_EXTENSION)
+            except (OSError, subprocess.SubprocessError):
+                pass
+            self.settings.disable_dock()
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            print(f'Não foi possível remover a auxiliar antiga: {error}')
+        else:
+            shutil.rmtree(companion)

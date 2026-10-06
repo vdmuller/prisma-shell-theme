@@ -22,7 +22,20 @@ class ConfigTests(unittest.TestCase):
             path = Path(tmp) / 'config.json'
             path.write_text(json.dumps({'name': 'Saved', 'accent': '112233', 'background': '445566', 'panel_background': '778899'}))
             config = load_config(path, name='Override', accent='aabbcc')
-            self.assertEqual(config.to_dict(), {'name': 'Override', 'accent': '#aabbcc', 'background': '#445566', 'panel_background': '#778899'})
+            self.assertEqual(config.to_dict(), {'name': 'Override', 'accent': '#aabbcc', 'background': '#445566', 'panel_background': '#778899', 'solid_accent': False})
+
+    def test_solid_accent_config_and_precedence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'solid.json'
+            path.write_text(json.dumps({'solid_accent': True}))
+            self.assertTrue(load_config(path).solid_accent)
+            self.assertFalse(load_config(path, solid_accent=False).solid_accent)
+            for value in ('true', 1, None):
+                path.write_text(json.dumps({'solid_accent': value}))
+                with self.assertRaises(ValueError):
+                    load_config(path)
+        with self.assertRaises(ValueError):
+            Config(solid_accent='yes')
 
     def test_invalid_input(self):
         for value in ('../x', '..', '/tmp/x', 'a/b', '', 'á', 'x'*65):
@@ -40,6 +53,39 @@ class ConfigTests(unittest.TestCase):
 
 
 class PaletteTests(unittest.TestCase):
+    def test_solid_accent_uses_exact_accent_and_neutral_text(self):
+        for background in ('#262831', '#ffffff', '#000000'):
+            for accent in ('#b087e5', '#feac8f', '#ffffff', '#000000'):
+                p = Palette(Config(background=background, accent=accent, solid_accent=True)).roles
+                self.assertEqual(p['selected'].css(), accent)
+                self.assertEqual(p['selected_text'], p['text'])
+                self.assertEqual(p['selected_text'].css(), '#ffffff')
+                self.assertNotEqual(p['menu_selected'], p['selected'])
+                self.assertNotEqual(p['selected_hover'], p['selected_pressed'])
+        normal = Palette(Config()).roles
+        self.assertEqual(normal['selected_text'], normal['accent_text'])
+
+    def test_reference_button_proportions(self):
+        roles = Palette(Config(accent='#b087e5', background='#262831')).roles
+        self.assertEqual(roles['control'].css(), '#30333f')
+        self.assertEqual(roles['menu_control'].css(), '#363846')
+        self.assertEqual(roles['selected'].css(), '#3b374d')
+        # A scalar accent blend lands within one RGB level of #494160.
+        expected = Color.hex('#494160')
+        self.assertLessEqual(max(abs(a - b) for a, b in zip(roles['menu_selected'].rgb, expected.rgb)), 1)
+
+    def test_menu_segments_are_distinct_and_readable(self):
+        for background in ('#000000', '#ffffff', '#26272e', '#ff0000', '#00ff00', '#0000ff', '#757575'):
+            for accent in ('#000000', '#ffffff', '#bf8ffe', '#feac8f'):
+                with self.subTest(background=background, accent=accent):
+                    roles = Palette(Config(background=background, accent=accent)).roles
+                    self.assertNotEqual(roles['menu_control'], roles['control'])
+                    self.assertNotEqual(roles['menu_selected'], roles['selected'])
+                    for name in ('menu_control', 'menu_hover', 'menu_pressed'):
+                        self.assertGreaterEqual(roles['text'].contrast(roles[name]), 4.5)
+                    for name in ('menu_selected', 'menu_selected_hover', 'menu_selected_pressed', 'menu_selected_focus'):
+                        self.assertGreaterEqual(roles['accent_text'].contrast(roles[name]), 4.5)
+
     def test_extreme_palettes_contrast_and_states(self):
         for background in ('#000000', '#ffffff', '#26272e', '#eeeeee', '#ff0000', '#00ff00', '#0000ff', '#757575', '#7a7a7a'):
             for accent in ('#000000', '#ffffff', '#c08aff', '#00ff00', '#ff0000'):
@@ -83,26 +129,17 @@ class PaletteTests(unittest.TestCase):
                 self.assertEqual(first[name], panel[name])
 
 
-class CompanionSettingsTests(unittest.TestCase):
-    def test_new_extension_activation_handles_typed_empty_lists(self):
-        import ast
-        state = {'enabled-extensions': ['other@local'], 'disabled-extensions': []}
-        def command(*args):
-            if args[0] == 'gnome-extensions':
-                raise subprocess.CalledProcessError(1, args)
-            key = args[3]
-            if args[1] == 'get':
-                return repr(state[key]) if state[key] else '@as []'
-            state[key] = ast.literal_eval(args[4])
-            return ''
+class DockSettingsTests(unittest.TestCase):
+    def test_native_settings_preserve_compact_and_position(self):
         settings = UserThemes()
-        with patch.object(settings, 'run', side_effect=command):
-            self.assertFalse(settings.enable_dock())
-            self.assertFalse(settings.enable_dock())
-            self.assertEqual(state['enabled-extensions'], ['other@local', DOCK_EXTENSION])
-            self.assertEqual(state['disabled-extensions'], [])
-            settings.disable_dock()
-            self.assertEqual(state['enabled-extensions'], ['other@local'])
+        with patch.object(settings, 'run', return_value='org.gnome.shell.extensions.dash-to-dock') as run:
+            self.assertTrue(settings.configure_dock(Config(background='#123456')))
+        writes = [call.args for call in run.call_args_list if call.args[:2] == ('gsettings', 'set')]
+        self.assertIn(('gsettings', 'set', 'org.gnome.shell.extensions.dash-to-dock', 'background-opacity', '0.85'), writes)
+        self.assertIn(('gsettings', 'set', 'org.gnome.shell.extensions.dash-to-dock', 'apply-custom-theme', 'false'), writes)
+        self.assertFalse(any(call[3] in ('custom-theme-shrink', 'extend-height', 'dock-position', 'dash-max-icon-size') for call in writes))
+        with patch.object(settings, 'run', return_value=''):
+            self.assertFalse(settings.configure_dock(Config()))
 
 
 class Settings:
@@ -112,8 +149,10 @@ class Settings:
         return self.value
     def available(self):
         return self.enabled
-    def enable_dock(self):
+    def configure_dock(self, config):
         return True
+    def run(self, *args):
+        return ''
     def disable_dock(self):
         pass
     def set(self, value):
@@ -242,31 +281,26 @@ class BuildInstallTests(unittest.TestCase):
                 self.installer.install(Config(accent='#0088ff'))
         self.assertEqual(before, (path / 'gnome-shell/prisma.json').read_bytes())
 
-    def test_companion_install_coexistence_and_last_theme_cleanup(self):
-        self.installer.install(Config())
+    def test_no_extension_generated_or_installed(self):
+        path = self.installer.install(Config())
+        self.assertFalse((path / 'extensions').exists())
+        self.assertFalse((path / 'gnome-shell/prisma-dock.css').exists())
+        self.assertFalse(self.installer.extensions_dir.exists())
+
+    def test_owned_legacy_extension_removed_on_update(self):
         companion = self.installer.extensions_dir / DOCK_EXTENSION
-        self.assertTrue(owned_companion(companion))
-        self.assertTrue((companion / 'extension.js').is_file())
-        self.installer.install(Config(name='Second'))
-        self.installer.remove('Prisma')
-        self.assertTrue(companion.exists())
-        self.installer.remove('Second')
+        companion.mkdir(parents=True)
+        (companion / 'prisma.json').write_text(json.dumps({'project': 'Prisma', 'component': 'dock', 'schema': 1}))
+        (companion / 'extension.js').write_text('legacy')
+        self.installer.install(Config())
         self.assertFalse(companion.exists())
 
-    def test_foreign_companion_prevents_overwriting_theme(self):
+    def test_foreign_legacy_extension_is_preserved(self):
         companion = self.installer.extensions_dir / DOCK_EXTENSION
         companion.mkdir(parents=True)
         (companion / 'important').write_text('keep')
-        with self.assertRaises(ValueError):
-            self.installer.install(Config())
-        self.assertFalse((self.installer.themes_dir / 'Prisma').exists())
+        self.installer.install(Config())
         self.assertEqual((companion / 'important').read_text(), 'keep')
-
-    def test_companion_activation_next_login_preserves_theme(self):
-        with patch.object(self.settings, 'enable_dock', return_value=False):
-            path = self.installer.install(Config(), activate=True)
-        self.assertTrue(owned(path))
-        self.assertEqual(self.settings.value, 'Prisma')
 
     def test_missing_user_themes_keeps_install(self):
         self.settings.enabled = False

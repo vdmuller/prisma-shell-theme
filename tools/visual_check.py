@@ -11,13 +11,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from prisma.config import Config
+from prisma.config import Config, load_config
 from prisma.install import generate
 
 
 def child(output, dock=False):
     settings = [
-        ('org.gnome.shell', 'enabled-extensions', "['ubuntu-dock@ubuntu.com', 'prisma-dock@prisma.local', 'prisma-qa@local']" if dock else "['prisma-qa@local']"),
+        ('org.gnome.shell', 'enabled-extensions', "['ubuntu-dock@ubuntu.com', 'prisma-qa@local']" if dock else "['prisma-qa@local']"),
         ('org.gnome.shell', 'disable-user-extensions', 'false'),
         ('org.gnome.shell', 'welcome-dialog-last-shown-version', "'50'"),
         ('org.gnome.desktop.background', 'picture-uri', "''"),
@@ -31,6 +31,9 @@ def child(output, dock=False):
             ('org.gnome.shell.extensions.dash-to-dock', 'dock-position', "'BOTTOM'"),
             ('org.gnome.shell.extensions.dash-to-dock', 'extend-height', 'false'),
             ('org.gnome.shell.extensions.dash-to-dock', 'apply-custom-theme', 'false'),
+            ('org.gnome.shell.extensions.dash-to-dock', 'custom-background-color', 'false'),
+            ('org.gnome.shell.extensions.dash-to-dock', 'transparency-mode', "'DEFAULT'"),
+            ('org.gnome.shell.extensions.dash-to-dock', 'custom-theme-shrink', 'false'),
         ]
     for schema, key, value in settings:
         subprocess.run(['gsettings', 'set', schema, key, value], check=True)
@@ -93,17 +96,18 @@ def main():
             'uuid': 'prisma-qa@local', 'name': 'Prisma private visual QA',
             'description': 'Private test fixture', 'shell-version': ['50'], 'session-modes': ['user'],
         }))
-        if args.dock:
-            shutil.copytree(ROOT / 'integrations/prisma-dock@prisma.local', workspace / 'data/gnome-shell/extensions/prisma-dock@prisma.local')
         themes = []
+        reference = load_config(ROOT / 'presets/reference.json')
         for name, background, accent, panel in (
-            ('reference', '#26272e', '#c08aff', '#1e1f25'),
+            ('reference', reference.background, reference.accent, reference.panel_background),
+            ('solid-accent', reference.background, reference.accent, reference.panel_background),
             ('light', '#eeeeee', '#c08aff', '#eeeeee'),
             ('blue', '#26272e', '#3584e4', '#1e1f25'),
             ('light-panel', '#26272e', '#c08aff', '#eeeeee'),
         ):
-            root = generate(workspace / name, Config(name, accent, background, panel))
-            themes.append({'name': name, 'css': str(root / 'gnome-shell/gnome-shell.css')})
+            root = generate(workspace / name, Config(name, accent, background, panel, solid_accent=name == 'solid-accent'))
+            themes.append({'name': name, 'css': str(root / 'gnome-shell/gnome-shell.css'),
+                           'solid_accent': name == 'solid-accent', 'accent': accent})
         (extension / 'configuration.json').write_text(json.dumps({'output': str(output), 'themes': themes, 'dock': args.dock}))
         command = ['dbus-run-session', '--', sys.executable, str(Path(__file__).resolve()), '--child', '--output', str(output)]
         if args.dock:

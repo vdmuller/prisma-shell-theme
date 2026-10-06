@@ -22,14 +22,16 @@ def main(argv=None, *, install_only=False):
             child.add_argument('--accent', metavar='HEX')
             child.add_argument('--background', metavar='HEX')
             child.add_argument('--panel-background', metavar='HEX')
+            child.add_argument('--solid-accent', action=argparse.BooleanOptionalAction, default=None,
+                               help='botões selecionados com accent exata e texto neutro')
         if command == 'build':
             child.add_argument('--output', type=Path, help='raiz do tema gerado (default: build/<nome>)')
         if command == 'install':
-            child.add_argument('--activate', action='store_true', help='selecionar em User Themes e habilitar Prisma Dock após instalar')
+            child.add_argument('--activate', action='store_true', help='selecionar em User Themes e configurar a dock nativa após instalar')
     args = parser.parse_args(argv)
     try:
         config = load_config(args.config, **{key: getattr(args, key, None)
-                            for key in ('name', 'accent', 'background', 'panel_background')})
+                            for key in ('name', 'accent', 'background', 'panel_background', 'solid_accent')})
         if args.command == 'build':
             target = generate(args.output or Path('build') / config.name, config)
             print(f'Tema gerado em {target}.')

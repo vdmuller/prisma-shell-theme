@@ -47,14 +47,32 @@ export default class PrismaQA extends Extension {
         if (!container) throw new Error('Ubuntu Dock was not loaded in the private session.');
         const icons = descend(container).filter(actor => actor instanceof St.Widget && actor.has_style_class_name('overview-icon'));
         if (!icons.length) throw new Error('No dock icons to validate.');
-        const current = Main.getThemeStylesheet();
-        Main.setThemeStylesheet(null);
-        Main.loadTheme();
-        if (St.ThemeContext.get_for_stage(global.stage).get_theme().get_custom_stylesheets().some(file => file.get_basename() === 'prisma-dock.css'))
-            throw new Error('Prisma Dock stylesheet leaked into the default theme.');
-        Main.setThemeStylesheet(current.get_path());
-        Main.loadTheme();
-        await pause(100);
+        const background = descend(container).find(actor => actor instanceof St.Widget && actor.has_style_class_name('dash-background'));
+        const alpha = background.get_theme_node().get_background_color().alpha;
+        if (Math.abs(alpha - 255 * .85) > 1) throw new Error(`Dock opacity differs: ${alpha}`);
+        const dockSettings = new Gio.Settings({schema_id: 'org.gnome.shell.extensions.dash-to-dock'});
+        dockSettings.set_boolean('custom-theme-shrink', false);
+        await pause(300);
+        const normalHeight = container.height;
+        const normalIconWidth = icons.filter(icon => Number.isFinite(icon.width) && icon.width > 0).reduce((sum, icon) => sum + icon.width, 0);
+        const normalIconPadding = Math.max(...icons.map(icon => icon.get_theme_node().get_padding(St.Side.TOP)));
+        await this.capture('dock-expanded');
+        dockSettings.set_boolean('custom-theme-shrink', true);
+        await pause(400);
+        if (!container.has_style_class_name('shrink') || container.height >= normalHeight)
+            throw new Error(`Compact dock did not shrink: ${normalHeight} -> ${container.height}`);
+        for (const icon of icons) {
+            for (const side of [St.Side.TOP, St.Side.RIGHT, St.Side.BOTTOM, St.Side.LEFT]) {
+                if (icon.get_theme_node().get_padding(side) > 2)
+                    throw new Error(`Compact padding mismatch: ${icon.get_style_class_name()}, side=${side}, padding=${icon.get_theme_node().get_padding(side)}, inline=${icon.get_style()}, classes=${container.get_style_class_name()}`);
+            }
+        }
+        const compactIconWidth = icons.filter(icon => Number.isFinite(icon.width) && icon.width > 0).reduce((sum, icon) => sum + icon.width, 0);
+        if (normalIconPadding <= 2 || compactIconWidth >= normalIconWidth)
+            throw new Error(`Compact icon tiles did not shrink: ${normalIconWidth} -> ${compactIconWidth}, padding=${normalIconPadding}`);
+        this.dockMetrics = {normalHeight, compactHeight: container.height,
+            normalIconWidth, compactIconWidth, normalIconPadding, compactIconPadding: Math.max(...icons.map(icon => icon.get_theme_node().get_padding(St.Side.TOP)))};
+        await this.capture('dock-compact');
         const states = [null, 'hover', 'active', 'checked', 'focus', 'focused', 'running'];
         for (const state of states) {
             for (const icon of icons) {
@@ -66,9 +84,10 @@ export default class PrismaQA extends Extension {
                 await pause(30);
                 for (const actor of [button, icon]) {
                     const color = actor.get_theme_node().get_background_color();
-                    const expected = state === 'hover' && actor === icon ? 30 : 0;
-                    if (color.alpha !== expected)
-                        throw new Error(`Unexpected dock background: ${state}, alpha=${color.alpha}, expected=${expected}`);
+                    const mustHighlight = actor === icon && state === 'hover';
+                    const mustBeClear = actor === button || state === null;
+                    if ((mustHighlight && color.alpha === 0) || (mustBeClear && color.alpha !== 0))
+                        throw new Error(`Unexpected dock background: ${state}, alpha=${color.alpha}`);
                 }
             }
             await pause(200);
@@ -126,6 +145,28 @@ export default class PrismaQA extends Extension {
             Main.setThemeStylesheet(theme.css);
             Main.loadTheme();
             await pause(400);
+            for (const item of this.toggles.filter(toggle => toggle._menuButton)) {
+                const body = item._box.get_first_child().get_theme_node().get_background_color();
+                const arrow = item._menuButton.get_theme_node().get_background_color();
+                if (body.red === arrow.red && body.green === arrow.green && body.blue === arrow.blue)
+                    throw new Error(`Quick Settings arrow segment is not distinct: ${theme.name}`);
+            }
+            if (theme.solid_accent) {
+                const ordinary = this.toggles.find(toggle => !toggle.checked && !toggle._menuButton);
+                const neutral = ordinary.get_theme_node().get_foreground_color();
+                if (neutral.red !== 255 || neutral.green !== 255 || neutral.blue !== 255 || neutral.alpha !== 255)
+                    throw new Error('Solid accent mode does not use opaque white ordinary text.');
+                const rgb = [1, 3, 5].map(start => parseInt(theme.accent.slice(start, start + 2), 16));
+                for (const toggle of this.toggles.filter(toggle => toggle.checked)) {
+                    const button = toggle._menuButton ? toggle._box.get_first_child() : toggle;
+                    const bg = button.get_theme_node().get_background_color();
+                    const fg = button.get_theme_node().get_foreground_color();
+                    if (bg.red !== rgb[0] || bg.green !== rgb[1] || bg.blue !== rgb[2])
+                        throw new Error('Solid selected button does not use the exact configured accent.');
+                    if (fg.red !== neutral.red || fg.green !== neutral.green || fg.blue !== neutral.blue)
+                        throw new Error('Solid selected button does not use ordinary neutral text.');
+                }
+            }
             await this.capture(`controls-${theme.name}`);
             this.fixture.hide();
             Main.panel.statusArea.quickSettings.menu.open();
@@ -211,6 +252,14 @@ export default class PrismaQA extends Extension {
                 color.green !== eventColor.green || color.blue !== eventColor.blue)
                 throw new Error('Notification and event surfaces differ.');
         }
+        const regularLabels = dateActors(Main.panel.statusArea.dateMenu.menu.actor).filter(actor =>
+            actor instanceof St.Widget && (actor.has_style_class_name('calendar-day') ||
+                (actor.has_style_class_name('world-clocks-header') && actor.has_style_class_name('no-world-clocks'))));
+        if (regularLabels.length < 29) throw new Error('Calendar typography actors missing.');
+        for (const label of regularLabels) {
+            if (label.get_theme_node().get_font().get_weight() !== 400)
+                throw new Error('Calendar date or Add World Clocks action is not regular weight.');
+        }
         await this.capture('calendar-notifications');
         Main.panel.statusArea.dateMenu.menu.close();
         Main.messageTray._hideNotification(false);
@@ -232,6 +281,6 @@ export default class PrismaQA extends Extension {
         await pause(250);
         await this.capture('osd');
         this.fixture.destroy();
-        this.finish({note: 'Real GNOME Shell 50.1 in a private headless session; controls fixtures use GNOME QuickToggle actors. No user theme or settings modified.'});
+        this.finish({dockMetrics: this.dockMetrics, note: 'Real GNOME Shell 50.1 in a private headless session; controls fixtures use GNOME QuickToggle actors. No user theme or settings modified.'});
     }
 }

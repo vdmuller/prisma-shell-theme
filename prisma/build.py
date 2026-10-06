@@ -37,7 +37,7 @@ $card_insensitive_fg_color: rgba($prisma_text, .5);
 $insensitive_bg_color: $prisma_control;
 $insensitive_borders_color: rgba($prisma_text, .08);
 $checked_bg_color: $prisma_selected;
-$checked_fg_color: $prisma_accent_text;
+$checked_fg_color: $prisma_selected_text;
 $hover_bg_color: $prisma_hover;
 $hover_fg_color: $prisma_text;
 $active_bg_color: $prisma_pressed;
@@ -79,35 +79,38 @@ WIDGET_ROLES = '''
 .quick-toggle:checked, .quick-toggle-menu-button:checked,
 .button.default, .icon-button.default,
 .modal-dialog .modal-dialog-button:default {
-  color: $prisma_accent_text;
+  color: $prisma_selected_text;
   background-color: $prisma_selected;
-  &:hover, &:active, &:focus { color: $prisma_accent_text; }
+  &:hover, &:active, &:focus { color: $prisma_selected_text; }
   &:hover { background-color: $prisma_selected_hover; }
   &:active, &:active:hover { background-color: $prisma_selected_pressed; }
   &:focus { background-color: $prisma_selected_focus; }
   &:focus:hover { background-color: $prisma_selected_hover; }
   &:focus:active { background-color: $prisma_selected_pressed; }
-  &:insensitive { color: rgba($prisma_accent_text, .5); background-color: $prisma_selected; }
+  &:insensitive { color: rgba($prisma_selected_text, .5); background-color: $prisma_selected; }
 }
 .quick-toggle:checked .quick-toggle-title,
 .quick-toggle:checked .quick-toggle-subtitle,
 .quick-toggle:checked StIcon { color: inherit; }
 .quick-toggle-menu .header .icon.active {
-  background-color: $prisma_selected; color: $prisma_accent_text;
+  background-color: $prisma_selected; color: $prisma_selected_text;
 }
 .quick-toggle-has-menu .quick-toggle-menu-button {
-  background-color: $prisma_control; color: $prisma_text;
-  &:hover, &:focus { background-color: $prisma_hover; }
-  &:active { background-color: $prisma_pressed; }
-  &:checked { background-color: $prisma_selected; color: $prisma_accent_text; }
-  &:checked:hover { background-color: $prisma_selected_hover; }
-  &:checked:focus { background-color: $prisma_selected_focus; }
-  &:checked:active, &:checked:active:hover, &:checked:active:focus { background-color: $prisma_selected_pressed; }
-  &:checked:insensitive { background-color: $prisma_selected; color: rgba($prisma_accent_text, .5); }
+  background-color: $prisma_menu_control; color: $prisma_text;
+  &:hover { background-color: $prisma_menu_hover; }
+  &:focus { background-color: $prisma_menu_hover; }
+  &:active { background-color: $prisma_menu_pressed; }
+  &:insensitive { background-color: $prisma_menu_control; color: rgba($prisma_text, .5); }
+  &:checked { background-color: $prisma_menu_selected; color: $prisma_selected_text; }
+  &:checked:hover { background-color: $prisma_menu_selected_hover; }
+  &:checked:focus { background-color: $prisma_menu_selected_focus; }
+  &:checked:focus:hover { background-color: $prisma_menu_selected_hover; }
+  &:checked:active, &:checked:active:hover, &:checked:active:focus { background-color: $prisma_menu_selected_pressed; }
+  &:checked:insensitive { background-color: $prisma_menu_selected; color: rgba($prisma_selected_text, .5); }
 }
-.toggle-switch:checked .handle { background-color: $prisma_accent_text; }
+.toggle-switch:checked .handle { background-color: $prisma_selected_text; }
 .quick-toggle-has-menu .quick-toggle-separator { background-color: rgba($prisma_text, .1); }
-.quick-toggle-has-menu:checked .quick-toggle-separator { background-color: rgba($prisma_accent_text, .12); }
+.quick-toggle-has-menu:checked .quick-toggle-separator { background-color: rgba($prisma_selected_text, .12); }
 .quick-slider .slider, .slider {
   color: $prisma_secondary_text;
   -barlevel-background-color: rgba($prisma_text, .35);
@@ -134,6 +137,11 @@ WIDGET_ROLES = '''
   background-image: none !important;
   box-shadow: none !important;
 }
+// Use regular weight for date numbers and the empty clocks action.
+.calendar .calendar-day,
+.world-clocks-button .world-clocks-header.no-world-clocks {
+  font-weight: normal;
+}
 // A subtle divider, scoped to the date menu (LTR and RTL share this color).
 .message-list { border-color: rgba($prisma_text, .07); }
 // Local recolored event markers make today's indicator readable in light themes.
@@ -146,6 +154,16 @@ WIDGET_ROLES = '''
 # Dash to Dock and Ubuntu Dock share this container ID. Scope backgrounds to
 # their icon layers; never clear running dots, badges or the app-grid tiles.
 DOCK_ROLES = r"""
+#dashtodockContainer #dash .dash-background {
+  background-color: rgba($prisma_surface, .85);
+}
+// Compact spacing must also shrink the inner Adwaita icon tile. The dock
+// extension reduces button padding, but leaves this inherited 6px layer alone.
+#dashtodockContainer.shrink #dash .dash-item-container .overview-icon {
+  padding: 2px;
+  spacing: 0;
+  border-radius: 12px;
+}
 #dashtodockContainer #dash .dash-item-container {
   .app-well-app, .overview-tile, .show-apps, .overview-icon {
     background-color: transparent !important;
@@ -175,7 +193,7 @@ def prepare_sources(directory, palette):
     shutil.copytree(UPSTREAM, directory)
     for path in directory.rglob('*.scss'):
         text = path.read_text()
-        text = text.replace('-st-accent-fg-color', '$prisma_accent_text')
+        text = text.replace('-st-accent-fg-color', '$prisma_selected_text')
         text = text.replace('-st-accent-color', '$prisma_accent')
         for function in ('mix', 'lighten', 'darken', 'transparentize'):
             text = text.replace('st-' + function + '(', function + '(')
@@ -184,11 +202,11 @@ def prepare_sources(directory, palette):
         text = re.sub(r'(background(?:-color)?:\s*)\$prisma_accent\b', r'\1$prisma_selected', text)
         text = re.sub(r'(background(?:-color)?:\s*)lighten\(\$prisma_accent,\s*[^)]+\)', r'\1$prisma_selected_hover', text)
         text = re.sub(r'(background(?:-color)?:\s*)darken\(\$prisma_accent,\s*[^)]+\)', r'\1$prisma_selected_pressed', text)
-        text = re.sub(r'(\bcolor:\s*)(?:lighten|darken)\(\$prisma_accent_text,\s*[^)]+\)', r'\1$prisma_accent_text', text)
+        text = re.sub(r'(\bcolor:\s*)(?:lighten|darken)\(\$prisma_selected_text,\s*[^)]+\)', r'\1$prisma_selected_text', text)
         text = text.replace('@if $always_dark {', "@if $always_dark and $variant == 'dark' {")
         if path.name == '_common.scss':
-            text = text.replace('$c:$prisma_accent, $tc:$prisma_accent_text',
-                                '$c:$prisma_selected, $tc:$prisma_accent_text')
+            text = text.replace('$c:$prisma_accent, $tc:$prisma_selected_text',
+                                '$c:$prisma_selected, $tc:$prisma_selected_text')
         if path.name == '_drawing.scss':
             needle = '  // normal style\n'
             if text.count(needle) != 1:
@@ -221,9 +239,6 @@ def compile_theme(destination, config):
         prepare_sources(source, palette)
         result = subprocess.run(['sassc', '-t', 'expanded', str(source / 'prisma.scss')],
                                 check=True, capture_output=True, text=True, timeout=60)
-        (source / 'dock.scss').write_text(palette.sass() + DOCK_ROLES)
-        dock_css = subprocess.run(['sassc', '-t', 'expanded', str(source / 'dock.scss')],
-                                  check=True, capture_output=True, text=True, timeout=60).stdout
         css = '/* Prisma — GNOME Shell 50.1; see UPSTREAM.md for licensing. */\n' + result.stdout
     if re.search(r'-st-accent(?:-fg)?-color|st-(?:mix|lighten|darken|transparentize)\(|\$prisma_|resource:///org/gnome/shell/theme/', css):
         raise ValueError('O CSS contém cores ou recursos não resolvidos.')
@@ -233,15 +248,13 @@ def compile_theme(destination, config):
     for asset in sorted(UPSTREAM.glob('*.svg')):
         shutil.copyfile(asset, shell / asset.name)
     event = (shell / 'calendar-today.svg').read_text()
-    event = event.replace('#ffffff', palette.roles['accent_text'].css()).replace('#fff', palette.roles['accent_text'].css())
+    event = event.replace('#ffffff', palette.roles['selected_text'].css()).replace('#fff', palette.roles['selected_text'].css())
     (shell / 'calendar-today-accent.svg').write_text(event)
     for asset in ('calendar-today.svg', 'calendar-today-light.svg'):
         text = (shell / asset).read_text()
         text = re.sub(r'fill:#[0-9a-fA-F]+', 'fill:' + palette.roles['text'].css(), text)
         (shell / asset).write_text(text)
     (shell / 'gnome-shell.css').write_text(css)
-    (shell / 'prisma-dock.css').write_text(dock_css)
-    shutil.copytree(ROOT / 'integrations/prisma-dock@prisma.local', destination / 'extensions/prisma-dock@prisma.local')
     (shell / 'prisma.json').write_text(json.dumps({
         'project': 'Prisma', 'schema': 1, 'gnome_shell': '50.1',
         'upstream_archive_sha256': '1b47760172c14f3f4edd1c9aff365f4de45583517bf0f80df4d3acbd4e4cb294',

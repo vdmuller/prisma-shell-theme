@@ -78,6 +78,7 @@ use defaults; unknown or invalid fields stop the operation.
 | `accent` | `#c08aff` |
 | `background` | `#26272e` |
 | `panel_background` | same color as `background` |
+| `solid_accent` | `false` |
 
 The `presets/reference.json` preset explicitly sets the panel to `#1e1f25`.
 The colors approximate the reference image, with contrast adjustments.
@@ -97,6 +98,28 @@ To keep this preset alongside the reference installation, override its name:
 ```bash
 python3 install.py --config presets/ubuntu-orange.json --name Prisma-Ubuntu --activate
 ```
+
+## Solid accent selection
+
+Use `--solid-accent` to fill selected controls with the exact configured accent
+and use pure white (`#ffffff`) text/icons on both selected and ordinary controls. Hover, focus and
+pressed states use derived shades; the arrow segment remains distinct. This
+applies to Quick Settings, selected switches/checkboxes, calendar selection and
+default action buttons. Other accent indicators and links retain their roles.
+
+```bash
+python3 prisma.py build --config presets/reference.json --solid-accent \
+  --name Prisma-Solid --output build/Prisma-Solid
+python3 install.py --config presets/reference.json --solid-accent \
+  --name Prisma-Solid --activate
+```
+
+The equivalent JSON option is `"solid_accent": true`. Command-line options
+still override JSON; `--no-solid-accent` explicitly restores the softly tinted
+style even when a configuration file enables solid selection.
+
+Solid mode prioritizes the exact accent and consistent white text, so selected
+control text is outside the tinted mode's 4.5:1 contrast guarantee. The foreground stays white rather than adapting to the accent.
 
 ## Palette and appearance
 
@@ -125,10 +148,26 @@ The normal session panel has an independent palette. Overview and lock-screen
 panels retain their standard transparent behavior. Pills, spacing, dimensions
 and geometry come from Adwaita; scale, fonts and content follow the system.
 
+Quick Settings buttons with additional options have a distinct arrow segment.
+Selected main buttons use 15.5% accent mixed into the background; arrow segments
+use 26%, with stronger tints for hover and pressed states. Neutral controls
+preserve the background hue, increase HSL saturation by a factor of 1.07 and
+shift HSL lightness by 4.7 percentage points in the appropriate direction.
+Inactive arrow segments preserve the same background hue, with a 7.1-point
+HSL lightness shift and a 1.03 saturation multiplier, avoiding a washed-out
+white blend. Contrast adjustments still take priority for extreme palettes.
+With accent `#b087e5` and background `#262831`, the normal control is `#30333f`,
+the inactive arrow is `#363846`, the selected control is `#3b374d`, and its
+arrow segment is `#4a4160` (within
+one RGB level of the reference `#494160`). Adwaita
+preserves their shared capsule outline, mirrored in RTL layouts, with separate
+hover, focus, pressed and disabled states.
+
 Notifications and calendar event cards share the same raised surface. Calendar
 weekday and month headings have transparent backgrounds. The divider between
 notifications and the calendar is subtle and follows the theme's text color;
-selected dates remain highlighted.
+selected dates remain highlighted. Date numbers and the empty Add World Clocks
+action use regular font weight.
 
 ## Dash to Dock / Ubuntu Dock
 
@@ -138,19 +177,38 @@ the pointer leaves. This includes running applications and the applications
 button. Running dots, badges and keyboard focus outlines are preserved; the
 application grid retains its Adwaita behavior.
 
-GNOME 50 gives extension styles priority over theme styles. Installation
-therefore includes the **Prisma Dock** companion extension at
-`$XDG_DATA_HOME/gnome-shell/extensions/prisma-dock@prisma.local` (normally
-`~/.local/share/gnome-shell/extensions/`). `--activate` also requests its
-activation. On first installation, logging out and back in may be necessary
-for Shell to discover the extension; the installer reports this when needed.
-When installing without `--activate`, enable Prisma Dock in the Extensions app.
+Prisma does not install a companion extension. Its CSS provides the dock's
+background with 85% opacity (15% transparency), while Dash to Dock / Ubuntu
+Dock manages positioning, spacing, hover and compact layout natively.
 
-The companion loads `gnome-shell/prisma-dock.css` from the selected theme only
-when its metadata identifies Prisma. Switching to another theme unloads the
-adjustments. Removing the last Prisma theme also removes the companion if it
-still belongs to the project. Builds include a copy in `extensions/` for
-manual installation or theme distribution.
+When `--activate` is used and the native dock settings schema is available,
+the installer disables the dock's built-in theme, sets its background to the
+configured theme background and selects fixed transparency at 85% opacity.
+It preserves compact mode (`custom-theme-shrink`), panel mode (`extend-height`),
+position and icon size. These are user preferences, not theme geometry.
+
+Compact mode also reduces the inherited Adwaita icon tile padding from 6px
+to 2px, removes inner spacing and uses a 12px corner radius. These adjustments
+apply only to the dock's `.shrink` mode, including the applications button;
+normal dock mode and the application grid retain their original geometry.
+
+To enable compact spacing manually:
+
+```bash
+gsettings set org.gnome.shell.extensions.dash-to-dock custom-theme-shrink true
+```
+
+To keep the dock sized to its contents rather than extending across the screen:
+
+```bash
+gsettings set org.gnome.shell.extensions.dash-to-dock extend-height false
+```
+
+The obsolete `prisma-dock@prisma.local` helper is disabled and removed on the
+next installation or removal only if its ownership marker identifies Prisma.
+Third-party files are preserved. User Themes is still required to select the
+Shell theme; it is separate from the removed dock helper. Native dock settings
+persist when switching Shell themes and can be changed in dock preferences.
 
 To validate with the installed Ubuntu Dock in a private session:
 

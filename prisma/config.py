@@ -23,8 +23,11 @@ class Config:
     accent: str = '#c08aff'
     background: str = '#26272e'
     panel_background: str | None = None
+    solid_accent: bool = False
 
     def __post_init__(self):
+        if not isinstance(self.solid_accent, bool):
+            raise ValueError('solid_accent deve ser true ou false.')
         object.__setattr__(self, 'name', theme_name(self.name))
         for field in ('accent', 'background'):
             object.__setattr__(self, field, color(getattr(self, field)))
@@ -43,7 +46,7 @@ def load_config(path=None, **overrides):
         unknown = values.keys() - Config.__dataclass_fields__.keys()
         if unknown:
             raise ValueError(f'Opções desconhecidas: {", ".join(sorted(unknown))}.')
-        if any(not isinstance(v, str) for v in values.values()):
-            raise ValueError('Os valores da configuração devem ser strings.')
+        if any(not isinstance(v, bool if k == 'solid_accent' else str) for k, v in values.items()):
+            raise ValueError('Cores e nome devem ser strings; solid_accent deve ser true ou false.')
     values.update({k: v for k, v in overrides.items() if v is not None})
     return Config(**values)
