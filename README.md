@@ -82,6 +82,22 @@ use defaults; unknown or invalid fields stop the operation.
 The `presets/reference.json` preset explicitly sets the panel to `#1e1f25`.
 The colors approximate the reference image, with contrast adjustments.
 
+The `presets/ubuntu-orange.json` preset changes only the reference accent to
+`#feac8f`. It uses the hue of [Ubuntu orange](https://design.ubuntu.com/brand/colour-palette)
+(`#e95420`) while retaining the HSV saturation and value of the current
+reference purple (`#bf8ffe`): approximately 43.7% saturation and 99.6% value.
+The theme name, background and panel background are unchanged.
+
+```bash
+python3 install.py --config presets/ubuntu-orange.json --activate
+```
+
+To keep this preset alongside the reference installation, override its name:
+
+```bash
+python3 install.py --config presets/ubuntu-orange.json --name Prisma-Ubuntu --activate
+```
+
 ## Palette and appearance
 
 The configured background is used exactly for the main Quick Settings,
